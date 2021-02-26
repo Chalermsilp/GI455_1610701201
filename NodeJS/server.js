@@ -1,12 +1,21 @@
 const { CONNECTING } = require('ws');
+const sqlite3 = require('sqlite3').verbose();
 var websocket = require('ws');
-
+   
 var callbackInitServer = ()=>
 {
     console.log("server is running.");
 }
 
 var wss = new websocket.Server({port:5500} , callbackInitServer)
+
+let db = new sqlite3.Database('./database/chatDB.db', sqlite3.OPEN_CREATE | sqlite3.OPEN_READWRITE, (err)=>{
+    if(err) throw err;
+
+    console.log('Connected to database.')
+
+});
+
 
 var roomList = [];
 /*
@@ -15,6 +24,7 @@ var roomList = [];
     wsList: []
 }
 */
+var wsList = [];
 
 wss.on("connection", (ws)=>{
     
@@ -22,9 +32,9 @@ wss.on("connection", (ws)=>{
     console.log("client connected.");
     //Reception
     ws.on("message", (data)=>{
-        console.log("send from client :"+ data);
+        console.log("send from client :" + data);
 
-        //========== Convert jsonStr into jsonObj =======
+                //========== Convert jsonStr into jsonObj =======
 
         //toJsonObj = JSON.parse(data);
 
@@ -34,6 +44,118 @@ wss.on("connection", (ws)=>{
             data:""
         }
         toJsonObj = JSON.parse(data);
+
+        //===============================================
+
+        if(toJsonObj.eventName == "Login")
+        {
+        var splitStr = toJsonObj.data.split('#');
+        var userID = splitStr[0];
+        var password = splitStr[1];
+        var sqlSelect = "SELECT * FROM UserData WHERE UserID='"+userID+"' AND Password='"+password+"'";
+            db.all(sqlSelect,(err,rows)=>
+            {
+                if(err)
+                {
+                    console.log(err);
+                }
+                else
+                {
+                    if(rows.length >0)
+                    {
+                        var callbackMsg =
+                        {
+                            eventName:"Login",
+                            data:rows[0].Name
+                        }
+                        var toJsonStr = JSON.stringify(callbackMsg);
+                        console.log(toJsonStr);
+                        ws.send(toJsonStr);
+                    }
+                    else
+                    {
+                        var callbackMsg =
+                        {
+                            eventName:"Login",
+                            data:"fail"
+                        }
+                        var toJsonStr = JSON.stringify(callbackMsg);
+                        console.log(toJsonStr);
+                        ws.send(toJsonStr);
+                    }
+                }
+            });
+        }
+
+        else if(toJsonObj.eventName == "Register")
+        {
+        var splitStr = toJsonObj.data.split('#');
+        var userID = splitStr[0];
+        var password = splitStr[1];
+        var name = splitStr[2];
+        var sqlInsert = "INSERT INTO UserData (UserID,Password,Name) VALUES ('"+userID+"' , '"+password+"' , '"+name+"')";
+            db.all(sqlInsert,(err,rows)=>
+            {
+                if(err)
+                {
+                    console.log("[0]" + err);
+                    var callbackMsg =
+                        {
+                            eventName:"Register",
+                            data:"fail"
+                        }
+                        var toJsonStr = JSON.stringify(callbackMsg);
+                        console.log(toJsonStr);
+                        ws.send(toJsonStr);
+                }
+                else
+                {
+                    var callbackMsg =
+                        {
+                            eventName:"Register",
+                            data:"success"
+                        }
+                        var toJsonStr = JSON.stringify(callbackMsg);
+                        console.log(toJsonStr);
+                        ws.send(toJsonStr);
+                }
+            });
+        }
+
+        else if(toJsonObj.eventName == "SendMessage")
+        {
+            var selectionRoomIndex = -1;
+
+            for(var i = 0; i < roomList.length; i++)
+            {
+                for(var j = 0; j < roomList[i].wsList.length; j++)
+                {
+                    if(ws == roomList[i].wsList[j])
+                    {
+                        selectionRoomIndex = i;
+                        break;
+                    }
+                }
+            }
+
+            for(var i = 0; i < roomList[selectionRoomIndex].wsList.length; i++)
+            {
+                var splitStr = toJsonObj.data.split('#');
+                var username = splitStr[0];
+                var data = splitStr[1];
+
+                var callbackMsg = {
+                    eventName:"SendMessage",
+                    data:username + " : " + data
+                }
+                /*var toJsonStr = JSON.stringify(callbackMsg);
+                ws.send(toJsonStr);*/
+
+                roomList[selectionRoomIndex].wsList[i].send(JSON.stringify(callbackMsg));
+            }
+        }
+    
+    
         //===============================================
 
         if(toJsonObj.eventName == "CreateRoom")//CreateRoom
